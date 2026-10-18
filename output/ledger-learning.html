@@ -1,0 +1,111 @@
+<div id="ledger-learning">
+  <h2>From a wrong total to a reusable correction</h2>
+  <div class="viz-controls">
+    <label class="form-label">Example ledger
+      <select class="form-select" id="ll-ledger"><option value="0">Ledger 1</option><option value="1">Ledger 2</option></select>
+    </label>
+  </div>
+  <div class="viz-controls" id="ll-inputs">
+    <label class="form-label">Amount 1<input class="form-control" id="ll-a" type="number" step="0.01" value="100.25"></label>
+    <label class="form-label">Amount 2<input class="form-control" id="ll-b" type="number" step="0.01" value="-20.10"></label>
+    <label class="form-label">Amount 3<input class="form-control" id="ll-c" type="number" step="0.01" value="5.00"></label>
+  </div>
+  <div id="ll-error" role="alert" class="text-destructive" hidden>Enter three amounts with at most two decimal places, each between -1,000,000 and 1,000,000.</div>
+  <hr>
+  <div class="viz-row">
+    <button type="button" class="btn" id="ll-back">Previous</button>
+    <span id="ll-position" class="tabular-nums">1 / 6</span>
+    <button type="button" class="btn btn-primary" id="ll-next">Next step</button>
+  </div>
+  <section aria-live="polite" aria-atomic="true">
+    <h3 id="ll-title">Run the original script</h3>
+    <div id="ll-rule"><code>Include positive amounts only</code></div>
+    <table class="table table-sm">
+      <thead><tr><th>Amount</th><th id="ll-column">Original script</th><th class="text-end">Counted</th></tr></thead>
+      <tbody id="ll-rows"></tbody>
+      <tfoot><tr><th>Total</th><td id="ll-status"></td><td id="ll-total" class="text-end tabular-nums"></td></tr></tfoot>
+    </table>
+    <div id="ll-detail"></div>
+  </section>
+  <hr>
+  <span class="text-small">Interactive simulation · predetermined edits · no model calls · no Python execution</span>
+</div>
+<script>
+(() => {
+  const root = document.getElementById('ledger-learning');
+  const el = id => root.querySelector('#ll-' + id);
+  const inputs = ['a', 'b', 'c'].map(el);
+  const presets = [['100.25', '-20.10', '5.00'], ['35.50', '-10.25', '-5.00']];
+  const titles = ['Run the original script', 'Propose a correction', 'Probe the corrected script', 'Compose the final script', 'Adopt the final result', 'Save a lesson for the next task'];
+  let step = 0;
+  const cents = value => {
+    if (!/^-?\d+(?:\.\d{1,2})?$/.test(value) || Math.abs(Number(value)) > 1000000) return null;
+    const negative = value.startsWith('-');
+    const [whole, fraction = ''] = value.replace('-', '').split('.');
+    return (Number(whole) * 100 + Number(fraction.padEnd(2, '0'))) * (negative ? -1 : 1);
+  };
+  const money = value => (value / 100).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  function draw() {
+    const amounts = inputs.map(input => cents(input.value));
+    const valid = amounts.every(value => value !== null);
+    el('error').hidden = valid;
+    el('back').disabled = step === 0;
+    el('next').disabled = step === 5 || !valid;
+    el('position').textContent = `${step + 1} / 6`;
+    el('title').textContent = titles[step];
+    el('rows').replaceChildren();
+    if (!valid) {
+      el('total').textContent = 'Unavailable';
+      el('status').textContent = 'Invalid input';
+      el('detail').textContent = '';
+      return;
+    }
+    const fixed = step >= 2;
+    const baseline = amounts.reduce((sum, value) => sum + Math.max(0, value), 0);
+    const total = amounts.reduce((sum, value) => sum + value, 0);
+    el('column').textContent = fixed ? 'Corrected script' : 'Original script';
+    el('rule').firstElementChild.textContent = step === 0 ? 'Include positive amounts only' : 'Proposed edit: remove the positive-only filter';
+    amounts.forEach(value => {
+      const included = fixed || value > 0;
+      const row = document.createElement('tr');
+      [money(value), included ? 'Included' : 'Skipped', money(included ? value : 0)].forEach((text, index) => {
+        const cell = document.createElement('td');
+        cell.textContent = text;
+        if (index === 2) cell.className = 'text-end tabular-nums';
+        row.appendChild(cell);
+      });
+      el('rows').appendChild(row);
+    });
+    el('total').textContent = money(fixed ? total : baseline);
+    el('status').textContent = (fixed || baseline === total) ? 'Matches signed sum' : 'Negative amounts omitted';
+    const details = [
+      `Signed sum: ${money(total)}. Original result: ${money(baseline)}.`,
+      'Edit is scripted in advance; the output above still shows the original execution.',
+      `Observed change: ${money(baseline)} to ${money(total)}.`,
+      'The composer applies the same predetermined correction to produce the final script.',
+      'At k=1, the sole delivered final is adopted without a comparison-based selector.',
+      'Saved lesson: include both signs. The next task receives this lesson, but the scripted editor does not learn from it.'
+    ];
+    el('detail').textContent = details[step];
+  }
+  function save() {
+    if (window.openai && window.openai.setWidgetState) {
+      window.openai.setWidgetState({modelContent: {step: titles[step], amounts: inputs.map(input => input.value), kind: 'scripted demo simulation'}, privateContent: {step, ledger: el('ledger').value, amounts: inputs.map(input => input.value)}}).catch(() => {});
+    }
+  }
+  function restore(state) {
+    const saved = state && state.privateContent;
+    if (!saved) return;
+    if (Number.isInteger(saved.step) && saved.step >= 0 && saved.step < 6) step = saved.step;
+    if (saved.ledger === '0' || saved.ledger === '1') el('ledger').value = saved.ledger;
+    if (Array.isArray(saved.amounts) && saved.amounts.length === 3 && saved.amounts.every(value => typeof value === 'string' && cents(value) !== null)) inputs.forEach((input, index) => {input.value = saved.amounts[index];});
+  }
+  el('next').addEventListener('click', () => {step = Math.min(5, step + 1); draw(); save();});
+  el('back').addEventListener('click', () => {step = Math.max(0, step - 1); draw(); save();});
+  el('ledger').addEventListener('change', () => {inputs.forEach((input, index) => {input.value = presets[Number(el('ledger').value)][index];}); step = 0; draw(); save();});
+  inputs.forEach(input => input.addEventListener('input', () => {draw(); save();}));
+  restore(window.openai && window.openai.widgetState);
+  window.addEventListener('openai:set_globals', event => {if (event.detail && event.detail.globals && event.detail.globals.widgetState) {restore(event.detail.globals.widgetState); draw();}});
+  draw();
+})();
+</script>
